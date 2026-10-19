@@ -3,7 +3,7 @@ import base64
 import hashlib
 import hmac
 import json
-import secrets as py_secrets
+import secrets
 from datetime import date
 from email.utils import parseaddr
 
@@ -43,27 +43,21 @@ if "correos" not in st.session_state:
             "remitente": "Profesora Ana",
             "email": "ana@universidad.edu",
             "asunto": "Entrega del proyecto de inglés",
-            "mensaje": (
-                "Entregar la actividad de inglés antes del viernes."
-            ),
+            "mensaje": "Entregar la actividad de inglés antes del viernes.",
             "fecha": str(date.today()),
         },
         {
             "remitente": "Bienestar Universitario",
             "email": "bienestar@universidad.edu",
             "asunto": "Inscripciones al torneo de tenis",
-            "mensaje": (
-                "Participa en el torneo de tenis de la universidad."
-            ),
+            "mensaje": "Participa en el torneo de tenis de la universidad.",
             "fecha": str(date.today()),
         },
         {
             "remitente": "Comunicaciones Institucionales",
             "email": "comunicaciones@universidad.edu",
             "asunto": "Boletín informativo semanal",
-            "mensaje": (
-                "Noticias generales y eventos de la institución."
-            ),
+            "mensaje": "Noticias generales y eventos de la institución.",
             "fecha": str(date.today()),
         },
     ]
@@ -99,12 +93,9 @@ def crear_flujo(state=None):
 
 
 def crear_estado_oauth():
-    """
-    Genera un estado aleatorio firmado para validar
-    el regreso de Google sin depender de la sesión.
-    """
+    """Genera un estado firmado para validar el regreso de Google."""
     config = st.secrets["gmail"]
-    nonce = py_secrets.token_urlsafe(32)
+    nonce = secrets.token_urlsafe(32)
 
     firma = hmac.new(
         config["client_secret"].encode("utf-8"),
@@ -116,10 +107,7 @@ def crear_estado_oauth():
 
 
 def validar_estado_oauth(estado):
-    """
-    Comprueba que el estado recibido fue generado
-    por esta aplicación.
-    """
+    """Verifica la firma del estado recibido desde Google."""
     if not estado or "." not in estado:
         return False
 
@@ -161,8 +149,8 @@ def procesar_respuesta_google():
 
     if not validar_estado_oauth(estado):
         st.session_state.error_google = (
-            "No se pudo validar la autorización. "
-            "Vuelve a conectar Gmail."
+            "No se pudo validar el estado de autorización. "
+            "Inicia una conexión nueva con Gmail."
         )
         st.query_params.clear()
         return
@@ -170,15 +158,15 @@ def procesar_respuesta_google():
     try:
         flujo = crear_flujo(state=estado)
 
+        # No se utiliza PKCE en este flujo web.
         flujo.fetch_token(code=codigo)
 
         st.session_state.gmail_token = (
             flujo.credentials.to_json()
         )
 
-        st.session_state.pop("oauth_state", None)
-        st.session_state.pop("oauth_url", None)
         st.session_state.pop("error_google", None)
+        st.session_state.pop("oauth_url", None)
 
         st.query_params.clear()
         st.rerun()
@@ -205,7 +193,6 @@ def obtener_credenciales():
 
         if credenciales.expired and credenciales.refresh_token:
             credenciales.refresh(Request())
-
             st.session_state.gmail_token = (
                 credenciales.to_json()
             )
@@ -226,20 +213,14 @@ def extraer_texto(parte):
 
     if mime == "text/plain" and cuerpo:
         datos = base64.urlsafe_b64decode(cuerpo)
-
-        return datos.decode(
-            "utf-8",
-            errors="replace",
-        )
+        return datos.decode("utf-8", errors="replace")
 
     textos = []
 
     for subparte in parte.get("parts", []):
         textos.append(extraer_texto(subparte))
 
-    return "\n".join(
-        texto for texto in textos if texto
-    )
+    return "\n".join(texto for texto in textos if texto)
 
 
 def cargar_correos_gmail(credenciales, limite=25):
@@ -294,32 +275,20 @@ def cargar_correos_gmail(credenciales, limite=25):
         if not cuerpo:
             cuerpo = mensaje.get("snippet", "")
 
-        correos.append(
-            {
-                "remitente": (
-                    nombre or email or "Remitente desconocido"
-                ),
-                "email": email.lower(),
-                "asunto": encabezados.get(
-                    "subject",
-                    "(Sin asunto)",
-                ),
-                "mensaje": cuerpo[:12000],
-                "fecha": encabezados.get(
-                    "date",
-                    "Fecha desconocida",
-                ),
-            }
-        )
+        correos.append({
+            "remitente": nombre or email or "Remitente desconocido",
+            "email": email.lower(),
+            "asunto": encabezados.get("subject", "(Sin asunto)"),
+            "mensaje": cuerpo[:12000],
+            "fecha": encabezados.get("date", "Fecha desconocida"),
+        })
 
     return correos
 
 
-# Procesar el regreso de Google antes de dibujar la interfaz.
-
+# Procesar el regreso de Google antes de mostrar la interfaz.
 try:
     procesar_respuesta_google()
-
 except Exception as error:
     st.session_state.error_google = (
         "No se pudo procesar la respuesta de Google. "
@@ -358,34 +327,26 @@ def clasificar_correo(correo):
     ]
 
     es_masivo = any(
-        palabra in texto
-        for palabra in palabras_masivo
+        palabra in texto for palabra in palabras_masivo
     )
 
     if es_profesor:
         categoria = "👩‍🏫 Importante: profesor"
-        razon = (
-            "El remitente está registrado como profesor."
-        )
+        razon = "El remitente está registrado como profesor."
 
     elif coincidencias:
         categoria = "🎯 Relacionado con mis intereses"
-        razon = (
-            "Coincide con tus intereses: "
-            + ", ".join(coincidencias)
+        razon = "Coincide con tus intereses: " + ", ".join(
+            coincidencias
         )
 
     elif es_masivo:
         categoria = "📢 Aviso institucional"
-        razon = (
-            "El contenido parece ser un aviso general."
-        )
+        razon = "El contenido parece ser un aviso general."
 
     else:
         categoria = "📬 Informativo"
-        razon = (
-            "No se encontraron coincidencias con tus intereses."
-        )
+        razon = "No se encontraron coincidencias con tus intereses."
 
     if coincidencias and es_profesor:
         razon += (
@@ -399,7 +360,6 @@ def clasificar_correo(correo):
 # ---------------- INTERFAZ ----------------
 
 st.title("🎓 InteresU Agent")
-
 st.caption(
     "Tu asistente universitario: identifica los correos "
     "que merecen tu atención."
@@ -410,9 +370,7 @@ if st.session_state.fuente_correos == "gmail":
         "Bandeja cargada desde Gmail. Modo de solo lectura."
     )
 else:
-    st.info(
-        "Estás viendo correos ficticios de demostración."
-    )
+    st.info("Estás viendo correos ficticios de demostración.")
 
 
 with st.sidebar:
@@ -432,21 +390,17 @@ with st.sidebar:
                     st.session_state.correos = (
                         cargar_correos_gmail(credenciales)
                     )
-
                     st.session_state.fuente_correos = "gmail"
 
                 st.success(
-                    f"Se cargaron "
-                    f"{len(st.session_state.correos)} correos."
+                    f"Se cargaron {len(st.session_state.correos)} correos."
                 )
-
                 st.rerun()
 
             except HttpError as error:
                 st.error(
-                    "Gmail rechazó la consulta. "
-                    "Revisa los permisos de la API. "
-                    f"Detalle: {error}"
+                    "Gmail rechazó la consulta. Revisa los permisos "
+                    f"de la API. Detalle: {error}"
                 )
 
             except Exception as error:
@@ -457,12 +411,9 @@ with st.sidebar:
 
         if st.button("Desconectar Gmail"):
             st.session_state.pop("gmail_token", None)
-            st.session_state.pop("oauth_state", None)
             st.session_state.pop("oauth_url", None)
-
             st.session_state.correos = []
             st.session_state.fuente_correos = "demo"
-
             st.rerun()
 
     else:
@@ -496,12 +447,9 @@ with st.sidebar:
                 )
 
         else:
-            st.warning(
-                "Falta la sección [gmail] en los Secrets."
-            )
+            st.warning("Falta la sección [gmail] en los Secrets.")
 
     st.divider()
-
     st.header("⚙️ Mi configuración")
 
     nuevo_interes = st.text_input(
@@ -512,33 +460,22 @@ with st.sidebar:
     if st.button("Agregar interés"):
         interes = nuevo_interes.strip().lower()
 
-        if (
-            interes
-            and interes not in st.session_state.intereses
-        ):
+        if interes and interes not in st.session_state.intereses:
             st.session_state.intereses.append(interes)
             st.rerun()
 
     for interes in st.session_state.intereses:
         col1, col2 = st.columns([4, 1])
-
         col1.write(f"• {interes}")
 
-        if col2.button(
-            "✖",
-            key=f"del_{interes}",
-        ):
+        if col2.button("✖", key=f"del_{interes}"):
             st.session_state.intereses.remove(interes)
             st.rerun()
 
     st.divider()
-
     st.subheader("👩‍🏫 Mis profesores")
 
-    nombre = st.text_input(
-        "Nombre del profesor"
-    )
-
+    nombre = st.text_input("Nombre del profesor")
     correo_profesor = st.text_input(
         "Correo del profesor",
         placeholder="profesor@universidad.edu",
@@ -557,14 +494,10 @@ with st.sidebar:
             ):
                 st.session_state.profesores.append(profesor)
                 st.success("Profesor registrado")
-
             else:
                 st.warning("Ese correo ya está registrado")
-
         else:
-            st.warning(
-                "Escribe un nombre y un correo válido."
-            )
+            st.warning("Escribe un nombre y un correo válido")
 
     for profesor in st.session_state.profesores:
         st.caption(
@@ -574,59 +507,35 @@ with st.sidebar:
 
 # ---------------- PESTAÑAS ----------------
 
-tab1, tab2, tab3 = st.tabs(
-    [
-        "📨 Bandeja de correos",
-        "🧪 Probar un correo",
-        "📊 Estadísticas y resumen",
-    ]
-)
+tab1, tab2, tab3 = st.tabs([
+    "📨 Bandeja de correos",
+    "🧪 Probar un correo",
+    "📊 Estadísticas y resumen",
+])
 
 
-# ---------------- BANDEJA ----------------
+# ---------------- BANDEJA DE CORREOS ----------------
 
 with tab1:
     st.subheader("Bandeja de correos")
 
     if not st.session_state.correos:
-        st.write(
-            "No hay correos cargados. Actualiza la bandeja."
-        )
+        st.write("No hay correos cargados. Actualiza la bandeja.")
 
     else:
-        for i, correo in enumerate(
-            st.session_state.correos
-        ):
-            categoria, razon, _, _ = clasificar_correo(
-                correo
-            )
+        for i, correo in enumerate(st.session_state.correos):
+            categoria, razon, _, _ = clasificar_correo(correo)
 
             with st.expander(
                 f'{categoria} | {correo["asunto"]}'
             ):
-                st.write(
-                    f'**De:** {correo["remitente"]}'
-                )
+                st.write(f'**De:** {correo["remitente"]}')
+                st.write(f'**Correo:** {correo["email"]}')
+                st.write(f'**Fecha:** {correo["fecha"]}')
+                st.write(f'**Mensaje:** {correo["mensaje"]}')
+                st.write(f'**¿Por qué se clasificó así?** {razon}')
 
-                st.write(
-                    f'**Correo:** {correo["email"]}'
-                )
-
-                st.write(
-                    f'**Fecha:** {correo["fecha"]}'
-                )
-
-                st.write(
-                    f'**Mensaje:** {correo["mensaje"]}'
-                )
-
-                st.write(
-                    f'**¿Por qué se clasificó así?** {razon}'
-                )
-
-                if (
-                    st.session_state.fuente_correos == "demo"
-                ):
+                if st.session_state.fuente_correos == "demo":
                     if st.button(
                         "Eliminar correo de prueba",
                         key=f"del_mail_{i}",
@@ -635,42 +544,22 @@ with tab1:
                         st.rerun()
 
 
-# ---------------- PROBAR CORREO ----------------
+# ---------------- PROBAR UN CORREO ----------------
 
 with tab2:
     st.subheader("Probar un correo")
 
     with st.form("form_correo"):
-        remitente = st.text_input(
-            "Nombre del remitente"
-        )
-
-        email = st.text_input(
-            "Correo del remitente"
-        )
-
-        asunto = st.text_input(
-            "Asunto del correo"
-        )
-
-        mensaje = st.text_area(
-            "Contenido del correo"
-        )
-
-        enviar = st.form_submit_button(
-            "Analizar correo"
-        )
+        remitente = st.text_input("Nombre del remitente")
+        email = st.text_input("Correo del remitente")
+        asunto = st.text_input("Asunto del correo")
+        mensaje = st.text_area("Contenido del correo")
+        enviar = st.form_submit_button("Analizar correo")
 
     if enviar:
-        if (
-            asunto.strip()
-            and mensaje.strip()
-            and "@" in email
-        ):
+        if asunto.strip() and mensaje.strip() and "@" in email:
             correo = {
-                "remitente": (
-                    remitente.strip() or email.strip()
-                ),
+                "remitente": remitente.strip() or email.strip(),
                 "email": email.strip().lower(),
                 "asunto": asunto.strip(),
                 "mensaje": mensaje.strip(),
@@ -683,26 +572,14 @@ with tab2:
 
             st.success("Análisis completado")
             st.subheader(categoria)
-
-            st.write(
-                "**Explicación:**",
-                razon,
-            )
+            st.write("**Explicación:**", razon)
 
             if es_profesor:
-                st.write(
-                    "**Prioridad:** Alta, por remitente registrado."
-                )
-
+                st.write("**Prioridad:** Alta, por remitente registrado.")
             elif coincidencias:
-                st.write(
-                    "**Prioridad:** Según tus intereses."
-                )
-
+                st.write("**Prioridad:** Según tus intereses.")
             else:
-                st.write(
-                    "**Prioridad:** Normal."
-                )
+                st.write("**Prioridad:** Normal.")
 
         else:
             st.warning(
@@ -721,47 +598,20 @@ with tab3:
     ]
 
     total = len(resultados)
-
-    profesores = sum(
-        1 for resultado in resultados
-        if resultado[2]
-    )
-
-    intereses = sum(
-        1 for resultado in resultados
-        if resultado[3]
-    )
-
+    profesores = sum(1 for resultado in resultados if resultado[2])
+    intereses = sum(1 for resultado in resultados if resultado[3])
     informativos = sum(
-        1
-        for resultado in resultados
+        1 for resultado in resultados
         if not resultado[2] and not resultado[3]
     )
 
     c1, c2, c3, c4 = st.columns(4)
-
-    c1.metric(
-        "Correos analizados",
-        total,
-    )
-
-    c2.metric(
-        "De profesores",
-        profesores,
-    )
-
-    c3.metric(
-        "Con intereses",
-        intereses,
-    )
-
-    c4.metric(
-        "Sin coincidencias",
-        informativos,
-    )
+    c1.metric("Correos analizados", total)
+    c2.metric("De profesores", profesores)
+    c3.metric("Con intereses", intereses)
+    c4.metric("Sin coincidencias", informativos)
 
     st.divider()
-
     st.subheader("📅 Posibles fechas y entregas")
 
     palabras_fecha = [
@@ -795,22 +645,16 @@ with tab3:
 
         if relevantes:
             encontrados += 1
-
-            st.write(
-                f'**{correo["asunto"]}**'
-            )
-
+            st.write(f'**{correo["asunto"]}**')
             st.caption(
                 f'Fecha del correo: {correo["fecha"]} · '
                 f'Palabras detectadas: {", ".join(relevantes)}'
             )
 
     if encontrados == 0:
-        st.write(
-            "No se detectaron posibles entregas o actividades."
-        )
+        st.write("No se detectaron posibles entregas o actividades.")
 
     st.caption(
-        "La clasificación y el resumen utilizan reglas y "
-        "palabras clave; todavía no son un modelo avanzado de IA."
+        "La clasificación y el resumen utilizan reglas y palabras "
+        "clave; todavía no son un modelo avanzado de IA."
     )
