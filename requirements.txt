@@ -1,26 +1,2 @@
 
 streamlit
-
-
-# INTERESU AGENT - COMANDOS DE INSTALACION Y EJECUCION
-
-# 1. Verificar la version de Python
-python --version
-
-# 2. Verificar pip
-python -m pip --version
-
-# 3. Instalar Streamlit
-python -m pip install streamlit
-
-# 4. Probar la demostracion de Streamlit
-python -m streamlit hello
-
-# 5. Ejecutar InteresU Agent
-python -m streamlit run app.py
-
-# 6. Detener la aplicacion
-# Presionar Ctrl + C en la terminal
-
-# 7. Instalar las dependencias del proyecto
-python -m pip install -r requirements.txt
